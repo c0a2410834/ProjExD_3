@@ -49,29 +49,15 @@ class Bird:
     }
 
     def __init__(self, xy: tuple[int, int]):
-        """
-        こうかとん画像Surfaceを生成する
-        引数 xy：こうかとん画像の初期位置座標タプル
-        """
         self.img = __class__.imgs[(+5, 0)]
         self.rct: pg.Rect = self.img.get_rect()
         self.rct.center = xy
 
     def change_img(self, num: int, screen: pg.Surface):
-        """
-        こうかとん画像を切り替え，画面に転送する
-        引数1 num：こうかとん画像ファイル名の番号
-        引数2 screen：画面Surface
-        """
         self.img = pg.transform.rotozoom(pg.image.load(f"fig/{num}.png"), 0, 0.9)
         screen.blit(self.img, self.rct)
 
     def update(self, key_lst: list[bool], screen: pg.Surface):
-        """
-        押下キーに応じてこうかとんを移動させる
-        引数1 key_lst：押下キーの真理値リスト
-        引数2 screen：画面Surface
-        """
         sum_mv = [0, 0]
         for k, mv in __class__.delta.items():
             if key_lst[k]:
@@ -138,7 +124,28 @@ class Score:
     def update(self, screen: pg.Surface):
         self.img = self.font.render(f"Score: {self.score}", True, self.color)
         screen.blit(self.img, self.rct)
-# --- 演習1 ここまで追加 ---
+
+
+# --- 演習3 ここから追加 ---
+class Explosion:
+    """
+    爆発エフェクトに関するクラス
+    """
+    def __init__(self, center: tuple[int, int]):
+        # 爆発エフェクト用の画像をロードし、リストに格納
+        self.img = pg.image.load("fig/explosion.gif")
+        self.imgs = [self.img, pg.transform.flip(self.img, True, True)] # flipは元の画像を改変しないのでOK
+        self.rct = self.imgs[0].get_rect(center=center)
+        self.life = 20  # 爆発の表示時間
+        self.img_index = 0
+
+    def update(self, screen: pg.Surface):
+        self.life -= 1
+        if self.life > 0:
+            # ちらつきを表現するために、画像を交互に切り替える
+            self.img_index = (self.img_index + 1) % len(self.imgs)
+            screen.blit(self.imgs[self.img_index], self.rct)
+# --- 演習3 ここまで追加 ---
 
 
 def main():
@@ -149,60 +156,74 @@ def main():
     bombs = [Bomb((255, 0, 0), 10) for _ in range(NUM_OF_BOMBS)]
     beams = []  # 演習2：ビームをリストで管理
     score = Score() # 演習1：Scoreインスタンスを生成
+    explosions = [] # 演習3：爆発リストを初期化
 
     clock = pg.time.Clock()
     tmr = 0
+    game_over = False # ゲームオーバー状態を管理するフラグを追加
+
     while True:
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-                # 演習2：ビームのリストに新しいインスタンスを追加
-                beams.append(Beam(bird))            
+                if not game_over: # ゲームオーバー中はビームを発射しない
+                    beams.append(Beam(bird))            
+        
         screen.blit(bg_img, [0, 0])
         
-        for bomb in bombs:
-            if bomb is not None and bird.rct.colliderect(bomb.rct):
-                bird.change_img(8, screen)
-                # --- ゲームオーバー表示の追加 ---
-                fonto = pg.font.Font(None, 80) # フォントを定義
-                txt = fonto.render("GAME OVER", True, (255, 0, 0)) # "GAME OVER"テキストを生成
-                screen.blit(txt, [WIDTH//2-150, HEIGHT//2]) # テキストを画面中央に表示
-                # --- ここまで追加 ---
-                score.update(screen) # ゲームオーバー時もスコアを更新して表示
-                pg.display.update()
-                time.sleep(1)
-                return
-        
-        # 演習2：複数ビームと複数爆弾の衝突判定
-        # リストを逆順にイテレートすることで、要素削除によるインデックスのずれを防ぐ
-        for i in range(len(beams) - 1, -1, -1):
-            beam = beams[i]
-            if beam is not None:
-                for j in range(len(bombs) - 1, -1, -1):
-                    bomb = bombs[j]
-                    if bomb is not None and beam.rct.colliderect(bomb.rct):
-                        beams[i] = None
-                        bombs[j] = None
-                        bird.change_img(6, screen)
-                        score.score += 1 # 演習1：スコアを加算
-                        break # ビームが1つの爆弾に当たったら次のビームへ
-        
-        # Noneでないものだけを残す（リスト内包表記）
-        bombs = [bomb for bomb in bombs if bomb is not None]
-        
-        # ビームリストに対して，要素がNoneでないもの かつ 画面の範囲内にいるものだけのリストに更新
-        beams = [beam for beam in beams if beam is not None and check_bound(beam.rct) == (True, True)]
+        # ゲームオーバー判定と処理
+        if not game_over: # ゲームオーバー中でない場合のみ衝突判定を行う
+            for bomb in bombs:
+                if bomb is not None and bird.rct.colliderect(bomb.rct):
+                    bird.change_img(8, screen)
+                    game_over = True # ゲームオーバー状態に設定
+                    # ゲームオーバー時のテキスト表示はループの最後に移動して、常に表示されるようにする
+                    break # 衝突したらループを抜ける
 
-        key_lst = pg.key.get_pressed()
-        bird.update(key_lst, screen)
+        if game_over: # ゲームオーバー中の描画処理
+            fonto = pg.font.Font(None, 80)
+            txt = fonto.render("GAME OVER", True, (255, 0, 0))
+            screen.blit(txt, [WIDTH//2 - txt.get_width()//2, HEIGHT//2 - txt.get_height()//2]) # 中央寄せ
+            score.update(screen) # スコアは常に更新・表示
+            pg.display.update()
+            # ここでゲームを完全に終了させずに、タイトル画面に戻るなどの処理を追加することも可能
+            # ただし、今回はシンプルに終了するようにします
+            time.sleep(1) # 一定時間表示後、終了
+            return
 
-        for beam in beams: # 複数のビームを更新
-            beam.update(screen)
-        for bomb in bombs:
-           bomb.update(screen)
 
-        score.update(screen) # 演習1：スコアを画面に描画
+        # ゲームオーバー中でない場合のみ、ゲームの進行を更新
+        if not game_over:
+            for i in range(len(beams) - 1, -1, -1): # 逆順でイテレート
+                beam = beams[i]
+                if beam is not None:
+                    for j in range(len(bombs) - 1, -1, -1): # 逆順でイテレート
+                        bomb = bombs[j]
+                        if bomb is not None and beam.rct.colliderect(bomb.rct):
+                            explosions.append(Explosion(bomb.rct.center)) # 演習3：爆発インスタンス生成
+                            beams[i] = None
+                            bombs[j] = None
+                            bird.change_img(6, screen)
+                            score.score += 1 
+                            break 
+            
+            bombs = [bomb for bomb in bombs if bomb is not None]
+            beams = [beam for beam in beams if beam is not None and check_bound(beam.rct) == (True, True)]
+            explosions = [exp for exp in explosions if exp.life > 0] # 演習3：ライフが残っている爆発のみ残す
+
+            key_lst = pg.key.get_pressed()
+            bird.update(key_lst, screen)
+
+            for beam in beams:
+                beam.update(screen)
+            for bomb in bombs:
+                bomb.update(screen)
+            for exp in explosions: # 演習3：爆発を描画
+                exp.update(screen)
+
+            score.update(screen) 
+
         pg.display.update()
         tmr += 1
         clock.tick(50)
